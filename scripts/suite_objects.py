@@ -1136,7 +1136,56 @@ class Scheme(SuiteObject):
         self.__reverse_transforms = list()
         self._has_run_phase = True
         self.__optional_vars = list()
+        self.__my_header = None
+        # Store scalar attributes for direct assignment to scheme variables
+        self.__scalar_attributes = {}
+        for attr_name, attr_value in scheme_xml.attrib.items():
+            # Skip known XML attributes (version, lib)
+            if attr_name not in ['version', 'lib']:
+                self.__scalar_attributes[attr_name] = attr_value
         super().__init__(name, context, parent, run_env, active_call_list=True)
+
+    @property
+    def scalar_attributes(self):
+        """Return the scalar attributes defined in the SDF for this scheme"""
+        return self.__scalar_attributes
+
+    def write_scalar_assignments(self, outfile, indent):
+        """Write scalar variable assignments from SDF attributes"""
+        if not self.__scalar_attributes or not self.__my_header:
+            return
+
+        outfile.write('! Set scalar values from SDF attributes', indent)
+        for attr_name, attr_value in self.__scalar_attributes.items():
+            # Look for a variable with standard name matching attr_name
+            var_found = False
+            for var in self.__my_header.variable_list():
+                if var.get_prop_value('standard_name') == attr_name:
+                    local_name = var.get_prop_value('local_name')
+                    var_type = var.get_prop_value('type')
+                    intent = var.get_prop_value('intent')
+
+                    # Only allow setting input variables
+                    if intent != 'in':
+                        errmsg = f"Variable '{attr_name}' has intent '{intent}' but only 'intent(in)' variables can be set from SDF attributes"
+                        raise CCPPError(errmsg)
+
+                    # Format the assignment based on variable type
+                    if var_type == 'character':
+                        assignment = f"{local_name} = '{attr_value}'"
+                    elif var_type in ['integer', 'real']:
+                        assignment = f"{local_name} = {attr_value}"
+                    else:
+                        errmsg = f"Variable '{attr_name}' with type '{var_type}' cannot be assigned from SDF attributes. Only character, integer, and real types are supported."
+                        raise CCPPError(errmsg)
+
+                    outfile.write(assignment, indent)
+                    var_found = True
+                    break
+
+            if not var_found:
+                errmsg = f"Variable with standard name '{attr_name}' not found in scheme '{self.subroutine_name}'"
+                raise CCPPError(errmsg)
 
     def update_group_call_list_variable(self, var):
         """If <var> is in our group's call list, update its intent.
@@ -1180,6 +1229,8 @@ class Scheme(SuiteObject):
             if phase in func:
                 my_header = func[phase]
                 self.__subroutine_name = my_header.title
+                # Store the header for later use during write phase
+                self.__my_header = my_header
             else:
                 self._has_run_phase = False
                 return set()
@@ -1201,6 +1252,20 @@ class Scheme(SuiteObject):
         # end if
         scheme_mods = set()
         scheme_mods.add((my_header.module, self.subroutine_name))
+
+        # For variables with SDF scalar attributes, mark them as available
+        # by adding them as managed variables in the group
+        for attr_name in self.__scalar_attributes.keys():
+            # Find the variable in the scheme header
+            for var in my_header.variable_list():
+                if var.get_prop_value('standard_name') == attr_name:
+                    vintent = var.get_prop_value('intent')
+                    if vintent == 'in':
+                        # This variable will be set from SDF, so it's available
+                        # Add it as a managed variable so it doesn't cause "not found" errors
+                        self.__group.manage_variable(var)
+                    break
+
         for var in my_header.variable_list():
             vstdname = var.get_prop_value('standard_name')
             def_val = var.get_prop_value('default_value')
@@ -1861,6 +1926,11 @@ class Scheme(SuiteObject):
         for (dict_var, var, var_ptr, has_transform) in self.__optional_vars:
             tstmt = self.associate_optional_var(dict_var, var, var_ptr, has_transform, cldicts, indent+1, outfile)
         # end for
+        #
+        # Write scalar assignments from SDF attributes before scheme call
+        #
+        if self._has_run_phase and self.__scalar_attributes:
+            self.write_scalar_assignments(outfile, indent+1)
         #
         # Write the scheme call.
         #

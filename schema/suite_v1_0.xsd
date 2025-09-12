@@ -35,6 +35,7 @@
       <xs:extension base="xs:string">
         <xs:attribute name="lib" type="xs:string" use="optional"/>
         <xs:attribute name="version" type="xs:string" use="optional"/>
+        <xs:anyAttribute processContents="lax"/>
       </xs:extension>
     </xs:simpleContent>
   </xs:complexType>
