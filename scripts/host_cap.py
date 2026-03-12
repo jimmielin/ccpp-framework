@@ -732,21 +732,25 @@ def write_host_cap(host_model, api, module_name, output_dir, run_env):
                     cap.write("return", 4)
                     cap.write("end if", 3)
                     # Allocate the suite's dynamic constituents array
-                    size_string = "0+"
-                    for var in host_local_vars.variable_list():
-                        vtype = var.get_prop_value('type')
-                        if vtype == 'ccpp_constituent_properties_t':
-                            local_name = var.get_prop_value('local_name')
-                            size_string += f"size({local_name})+"
-                        # end if
-                    # end for
                     if not has_dyn_consts:
                         cap.comment("Suite does not return dynamic constituents; allocate to zero", 3)
-                    # end if
-                    cap.write(f"allocate({dyn_const_array}({size_string[:-1]}))", 3)
-                    if has_dyn_consts:
+                        cap.write(f"allocate({dyn_const_array}(0))", 3)
+                    else:
+                        # This is calculated separately to avoid exceeding line length limits at
+                        # inconvenient places:
+                        cap.comment("Compute total number of dynamic constituents for allocation", 3)
+                        cap.write("num_dyn_consts = 0", 3)
+                        for var in host_local_vars.variable_list():
+                            vtype = var.get_prop_value('type')
+                            if vtype == 'ccpp_constituent_properties_t':
+                                local_name = var.get_prop_value('local_name')
+                                cap.write(f"num_dyn_consts = num_dyn_consts + size({local_name})", 3)
+                            # end if
+                        # end for
+                        cap.write(f"allocate({dyn_const_array}(num_dyn_consts))", 3)
                         cap.comment("Pack the suite-level dynamic, run-time constituents array", 3)
                         cap.write("num_dyn_consts = 0", 3)
+                    # end if
                     for var in host_local_vars.variable_list():
                         vtype = var.get_prop_value('type')
                         if vtype != 'ccpp_constituent_properties_t':
