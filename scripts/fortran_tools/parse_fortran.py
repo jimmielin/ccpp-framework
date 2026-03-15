@@ -814,7 +814,7 @@ def parse_fortran_var_decl(line, source, run_env, imports=None):
                                  fortran_imports=imports)
                 newvars.append(var)
             except ParseSyntaxError as perr:
-                errors.append(perr)
+                errors.append(str(perr))
             # end try
         # end for
     # No else (not a variable declaration)
